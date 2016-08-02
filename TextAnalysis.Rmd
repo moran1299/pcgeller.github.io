@@ -3,7 +3,7 @@ title: "84th MORS Text Analysis"
 output: html_document
 ---
 
-```{r, echo = FALSE, message = FALSE}
+```{r, echo = FALSE, message = FALSE, warning=FALSE}
 
 library(tm)
 library(dplyr)
