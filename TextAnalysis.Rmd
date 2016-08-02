@@ -1,0 +1,253 @@
+---
+title: "84th MORS Text Analysis"
+output: html_document
+---
+
+```{r, echo = FALSE, message = FALSE}
+
+library(tm)
+library(dplyr)
+library(SnowballC)
+library(wordcloud)
+library(cluster)
+library(fpc)
+library(ggplot2)
+library(slam)
+library(networkD3)
+library(skmeans)
+
+#&&&&&&&&&& Function Definition &&&&&&&&&&&&&&&&&&&&
+#
+#&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+
+#remove incorrectly formated character encodings
+removespecial <- function(){
+  for(j in seq(abstracts)) 
+  {   
+    abstracts[[j]]$content <<- gsub("\u0092", " ", abstracts[[j]]$content)   
+    abstracts[[j]]$content <<- gsub("\u0096", " ", abstracts[[j]]$content)   
+    abstracts[[j]]$content <<- gsub("\u0097", " ", abstracts[[j]]$content)  
+    abstracts[[j]]$content <<- gsub("\u0094", " ", abstracts[[j]]$content)  
+    abstracts[[j]]$content <<- gsub("\u0093", " ", abstracts[[j]]$content)  
+  }
+}
+
+#make freq plot
+makeplot <- function(freqthreshold,path){
+  #png(filename = paste(path, "/freq.png", sep = ""))
+  p <- ggplot(subset(wf,freq>freqthreshold), aes(x = reorder(word,freq),y = freq))
+  p <- p + geom_bar(stat="identity")
+  p <- p + theme(axis.text.x=element_text(angle=45, hjust = 1))
+ # ggsave(filename = paste(path, "/freq.png", sep = ""), plot = p, width = 6, height = 6)
+ # dev.off()
+}
+
+#make word cloud
+makewordcloud <- function(freqthreshold,path){
+ # png(filename = paste(path, "/cloud.png", sep = ""))
+  cloud <- wordcloud(names(freq), freq, min.freq=freqthreshold, scale=c(5, .1), colors=brewer.pal(6, "Dark2"))   
+  #ggsave(filename = paste(path, "/cloud.png", sep = ""), plot = cloud)
+  dev.off()
+}
+
+#make dendogram
+makedendo <- function(sparsity,path){
+ # png(filename = paste(path, "/dendo.png", sep = ""))
+  dtmss <- removeSparseTerms(dtm, sparsity)
+  d <- dist(t(dtmss), method="euclidian")
+  fit <- hclust(d=d, method="ward.D2")
+  dendo <- plot(fit, hang = -1)
+  #ggsave(filename = paste(path, "/dendo.png", sep = ""), plot = dendo)
+ # dev.off()
+}
+
+#make kmeans cluster
+makecluster <- function(path){
+ # png(filename = paste(path, "/cluster.png", sep=""))
+  d <- dist(t(dtmss), method = "euclidian")
+  kfit <- kmeans(d,16)
+  clus <- clusplot(as.matrix(d), kfit$cluster, color = T, shade = T, labels = 2, lines = 0)
+  #ggsave(filename = paste(path, "/cluster.png", sep=""), plot = clus)
+  #dev.off()
+}
+
+
+#count frequency of words per cluster 
+mfrq_words_per_cluster <- function(clus, dtm, first = 10, unique = TRUE){
+  if(!any(class(clus) == "skmeans")) return("clus must be an skmeans object")
+  
+  dtm <- as.simple_triplet_matrix(dtm)
+  indM <- table(names(clus$cluster), clus$cluster) == 1 # generate bool matrix
+  
+  hfun <- function(ind, dtm){ # help function, summing up words
+    if(is.null(dtm[ind, ]))  dtm[ind, ] else  col_sums(dtm[ind, ])
+  }
+  frqM <- apply(indM, 2, hfun, dtm = dtm)
+  
+  if(unique){
+    # eliminate word which occur in several clusters
+    frqM <- frqM[rowSums(frqM > 0) == 1, ] 
+  }
+  # export to list, order and take first x elements 
+  res <- lapply(1:ncol(frqM), function(i, mat, first)
+    head(sort(mat[, i], decreasing = TRUE), first),
+    mat = frqM, first = first)
+  
+  names(res) <- paste0("CLUSTER_", 1:ncol(frqM))
+  return(res)
+}
+
+
+
+setwd("/home/rstudio/MORS")
+##load data and format into corpus
+excel <- read.csv("mors8.csv", stringsAsFactors = FALSE)
+text <- excel[c("EventID","Abstract.Text","ED_Track")]
+unq <- text[!duplicated(text$Abstract.Text),]
+m <- list(content = "Abstract.Text", ID = "EventID", WG = "ED_Track")
+reader <- readTabular(mapping = m)
+invisible((abstracts <- Corpus(DataframeSource(unq), readerControl = list(reader = reader))))
+##pre process data
+removespecial()
+userRemovedwords <- c("using","used","use","can", "will", "analysis", "data", "unclassified")
+abstracts <- tm_map(abstracts, removePunctuation)
+abstracts <- tm_map(abstracts, removeNumbers)
+abstracts <- tm_map(abstracts, content_transformer(tolower))
+abstracts <- tm_map(abstracts, removeWords, stopwords("english"))
+abstracts <- tm_map(abstracts, removeWords, userRemovedwords)
+##Stemming the abstracts takes off too many important endings - a lot of ses (s's?) get dropped from the ends of words
+#abstracts <- tm_map(abstracts, stemDocument)
+abstracts <- tm_map(abstracts, stripWhitespace)
+
+abstracts[[66]] <- NULL #blank abstract
+
+#calc variables for plots
+
+dtm <- DocumentTermMatrix(abstracts)
+tdm <- TermDocumentMatrix(abstracts)
+freq <- colSums(as.matrix(dtm))
+wf <- data.frame(word=names(freq), freq=freq)
+wf <- arrange(wf,freq)
+dtmss <- removeSparseTerms(dtm, 0.80)
+
+#loop through all working groups and create DTM, and plot for each WG.  save under unique file name
+WG <- distinct(text["ED_Track"])
+WG <- as.vector(WG[,1])
+WG <- WG[-23] # blank
+mattfidf <- weightTfIdf(dtm) 
+matnormal <- as.matrix(dtm)
+matnormal <- matnormal/rowSums(matnormal)
+disttfidf <- dist(mattfidf, method = "manhattan")
+distnorm <- dist(matnormal, method = "manhattan")
+```
+**This work is currently on-going and being completed outside of duty hours.  This represents the "do no spend too much time on it" version of the analysis.**
+
+The Center for Army Analysis was asked by the Military Operations Research Society (MORS) to analyze the texts of abstracts submited for the 84th MORS symposium.  The goal of the analysis was to determine if the abstracts would form clusters that are different than their current clustering (by working groups).
+
+## Summary
+
+Do the abstracts cluster in a way that makes reorganizing the MORS working groups logical and worthwhile?
+
+The short answer is no.  Many of the unique terms found in the corpus are also unique to an abstract.  In other words the terms are not shared across abstracts.  My hypothesis is that this is because MORS does not reject many abstracts sent for submission.  This would lead to abstracts that are loosely tied to WG but not very specific to the WG.  
+
+
+The first piece of data that we have is the sparsity of the Document Term Matrix which lists all of the key terms in the corpus and how many times they appear in each document.
+```{r}
+dtm
+```
+The sparsity value of 99% implies that most terms appear only in a few documents a piece; terms are not shared between documents and tend to be specific to a handful of documents.
+There are 6760 terms in the generated DTM.
+If we run a command to reduce the sparcity of the matrix to say a maximum of 90%:
+```{r}
+removeSparseTerms(dtm,0.90)
+```
+We're left with a sparsity of 84% and only 98 terms remaining.   This is further evidence that the corpus words are not shared between document because the only way to reduce the sparsity of the matrix is to remove terms.   
+
+However, all is not lost.  
+
+To determine the number of clusters we try to minimize the sum of squares error within each group. 
+
+```{r}
+mattfidf <- weightTfIdf(dtm) 
+disttfidf <- dist(mattfidf, method = "manhattan")
+wsstfidf <- 2:30
+for (i in 2:30) wsstfidf[i] <- sum(kmeans(disttfidf, centers = i, nstart = 25)$withinss)
+plot(2:30, wsstfidf[2:30], type = "b")
+```
+
+We're looking for the point where the rate of change for the SS error begins to decrease.  You can see this around 5-10 clusters.  
+
+If we assume 10 clusters we can use kmeans to do the clustering.  This generates the following matrix which shows the paper (top row of 1:384) and the cluster that it falls into (1:10).
+
+```{r}
+sphericalmeans <- skmeans(mattfidf, 10)
+sphericalmeans$cluster
+```
+
+The 10 words associated with each cluster are:
+```{r}
+mfrq_words_per_cluster(sphericalmeans, dtm, unique = FALSE)
+```
+
+The 10 unique words associated with each cluster are:
+```{r}
+-----mfrq_words_per_cluster(sphericalmeans, dtm, unique = TRUE)
+```
+
+## Preprocessing 
+
+The abstracts were extracted from the Excel file provided by MORS and saved as a .csv.  The list of abastracts was then deduplicated (original file had abstract listed for each auther, WG, etc.) to provide  alist of unique abstracts.  This returned **`r nrow(unq)` unique abstracts**.  Then punctuation, stopwords( the, is, what, etc.), user defined words: **`r userRemovedwords`**, and all numbers were removed from the abstracts and the text then converted to lowercase letters.  The next step is to turn the collection of abstracts into a corpus and then generate document term matrix (DTM) from the corpus.  The DTM lists all of the documents (rows) and unique words that appear within the entire corpus.  Values in the matrix correspond to how many times a word appeared in a documents.  
+
+### Abstract Corpus
+```{r}
+abstracts
+```
+This has a key metric - the sparsity of the matrix - which is 99% and means that 99% of the matrix is filled with 0s.  This implies that there are a large number of terms that are not shared between documents.  
+### Document Term Matrix
+
+```{r}
+dtm
+## This shows you words 150 to 160 for document 17.  These words did no appear within the document (but did elsewhere in the corpus)
+inspect(dtm[17, 150:160])
+```
+
+
+## Distance and normalization calculations
+From the DTM we can begin to cluster the abstracts.  Clustering algorithms depend on the notion of distance in order to determine how documents are similar or different.  The distance calculation occurs on a normalized or weighted DTM. This is to ensure that longer documents, for frequent words do not disproportionately affect the results. The most common method and one used here is the term frequency - inverse document frequency.  So first we must calculate a distance matrix - this tells you how "far" away each document is from each other.
+
+```{r}
+#normalization Calcs
+
+mattfidf <- weightTfIdf(dtm) 
+
+
+disttfidf <- dist(mattfidf, method = "manhattan")
+distnorm <- dist(matnormal, method = "manhattan")
+
+```
+
+Clustering algorithms require an input that tells the algorithm the number of clusters to make. There are several heuristic methods for determing what this number should be.  One of the most common ones is to plot the sum of squares error for each group.  The point on the plot where the error starts to level out (the elbow in the curve) is a good starting point for how many clusters you should create.
+
+```{r}
+wss <- 2:30
+for (i in 2:30) wss[i] <- sum(kmeans(distnorm, centers = i, nstart = 25)$withinss)
+plot(2:30, wss[2:30], type = "b")
+wsstfidf <- 2:30
+for (i in 2:30) wsstfidf[i] <- sum(kmeans(disttfidf, centers = i, nstart = 25)$withinss)
+plot(2:30, wsstfidf[2:30], type = "b")
+```
+Using the tfidf weighting this implies that there should be about 5 +/-1 with a max of 10 clusters.  
+```{r}
+tfidfclust <- hclust(distnorm, "ward.D2")
+
+dendroNetwork(tfidfclust,  height = 6000, width = 2000, fontSize = 6,
+              textColour = c("brown","light blue","pink","gray","tan","red", "blue", "orange","black","green")[cutree(tfidfclust, 5)],
+              treeOrientation = "horizontal",zoom = TRUE,linkType = "elbow",nodeStroke="grey")
+
+normclust <- hclust(distnorm, "ward.D2")
+
+dendroNetwork(normclust,  height = 6000, width = 2000, fontSize = 6,
+              textColour = c("brown","light blue","pink","gray","tan","red", "blue", "orange","black","green")[cutree(normclust, 5)],
+              treeOrientation = "horizontal",zoom = TRUE,linkType = "elbow",nodeStroke="grey")
+
+```
