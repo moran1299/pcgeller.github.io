@@ -99,7 +99,7 @@ mfrq_words_per_cluster <- function(clus, dtm, first = 10, unique = TRUE){
 
 
 
-setwd("/home/rstudio/MORS")
+#setwd("/home/rstudio/MORS")
 ##load data and format into corpus
 excel <- read.csv("mors8.csv", stringsAsFactors = FALSE)
 text <- excel[c("EventID","Abstract.Text","ED_Track")]
@@ -191,7 +191,7 @@ mfrq_words_per_cluster(sphericalmeans, dtm, unique = FALSE)
 
 The 10 unique words associated with each cluster are:
 ```{r}
------mfrq_words_per_cluster(sphericalmeans, dtm, unique = TRUE)
+mfrq_words_per_cluster(sphericalmeans, dtm, unique = TRUE)
 ```
 
 ## Preprocessing 
